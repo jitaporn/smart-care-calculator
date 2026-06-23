@@ -1,4 +1,4 @@
-const APP_VERSION = "1.0.6";
+const APP_VERSION = "1.0.7";
 const CACHE = `smart-care-v${APP_VERSION}`;
 const ASSETS = [
   "./",
@@ -20,12 +20,19 @@ self.addEventListener("activate", event => {
   self.clients.claim();
 });
 
+self.addEventListener("message", event => {
+  if (event.data?.type === "SKIP_WAITING") self.skipWaiting();
+});
+
 self.addEventListener("fetch", event => {
   if (event.request.method !== "GET") return;
   event.respondWith((async () => {
     const cache = await caches.open(CACHE);
     try {
-      const response = await fetch(event.request);
+      const request = event.request.mode === "navigate"
+        ? new Request(event.request, { cache: "reload" })
+        : event.request;
+      const response = await fetch(request);
       if (response && response.ok) cache.put(event.request, response.clone());
       return response;
     } catch {
