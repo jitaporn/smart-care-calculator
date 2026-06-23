@@ -8,7 +8,7 @@ let cameraStream = null;
 let pendingImage = null;
 
 const state = {
-  tab: "home",
+  tab: "scan",
   authMode: "login",
   calcMode: "medicine",
   scanStage: "upload",
@@ -126,14 +126,14 @@ async function submitAuth(event) {
 
 function renderShell() {
   const tabs = [
-    ["home","▦","คำนวณ"], ["scan","⌗","AI สแกน"], ["history","↺","ประวัติ"],
+    ["scan","⌗","AI สแกน"], ["home","▦","คำนวณ"], ["history","↺","ประวัติ"],
     ["favorites","☆","ยาโปรด"], ["drugs","◇","คลังยา"], ["profile","○","โปรไฟล์"]
   ];
   $("#app").innerHTML = `
     <div class="app-shell">
       <header class="topbar">
         <div class="header-inner">
-          <button class="brand-button" data-tab="home"><span class="mini-mark">+</span><span><b>Smart Care</b><small>CLINICAL CALCULATOR</small></span></button>
+          <button class="brand-button" data-tab="scan"><span class="mini-mark">+</span><span><b>Smart Care</b><small>CLINICAL CALCULATOR</small></span></button>
           <div class="status ${cloudEnabled ? "online" : ""}"><i></i>${cloudEnabled ? "Cloud connected" : "Demo mode"}</div>
           <button class="icon-button" id="signOut" title="ออกจากระบบ">↪</button>
         </div>
