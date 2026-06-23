@@ -1,7 +1,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
-const APP_VERSION = "1.0.7";
+const APP_VERSION = "1.1.0";
 const CONFIG = window.SMART_CARE_CONFIG || {};
 const cloudEnabled = Boolean(CONFIG.supabaseUrl && CONFIG.supabaseAnonKey);
 let supabaseClient = null;
@@ -27,7 +27,8 @@ const db = {
   set demoUser(value) { value ? localStorage.setItem("scc_user", JSON.stringify(value)) : localStorage.removeItem("scc_user"); },
 };
 
-const drugs = [
+let drugs = [];
+const demoDrugs = [
   { name:"Penicillin G", generic:"Benzylpenicillin", group:"Penicillin antibiotic", routes:["IV","IM"], max:null, unit:"unit/kg/dose", warning:"ตรวจสอบชนิดเกลือและข้อบ่งใช้ก่อนคำนวณ", nursing:"ซักประวัติแพ้ penicillin เฝ้าระวัง anaphylaxis หลังฉีด และบันทึกวันเวลาหลังผสมยา", source:"Antibiotics.pdf หน้า 1-2" },
   { name:"Cefazolin", generic:"Cefazolin sodium", group:"1st generation cephalosporin", routes:["IV","IM"], max:100, unit:"mg/kg/day", warning:"ปรับตามไตและข้อบ่งใช้", nursing:"ซักประวัติแพ้ยา สังเกตอาการแพ้ ปริมาณปัสสาวะ และการติดเชื้อแทรกซ้อน", source:"Antibiotics.pdf หน้า 3-4" },
   { name:"Vancomycin", generic:"Vancomycin hydrochloride", group:"Glycopeptide antibiotic", routes:["IV","PO"], max:null, unit:"mg/kg/dose", warning:"ต้องใช้ protocol และติดตามระดับยา/ไต", nursing:"ติดตาม CBC, BUN, creatinine, การได้ยิน และเฝ้าระวัง infusion reaction", source:"Antibiotics.pdf หน้า 5-6" },
@@ -39,6 +40,7 @@ const drugs = [
   { name:"Levofloxacin", generic:"Levofloxacin", group:"Fluoroquinolone antibiotic", routes:["IV","PO"], max:null, unit:"mg/kg/day", warning:"ปรับตามไต ระวัง QT prolongation และ tendon injury", nursing:"ห้าม IV push ให้ infusion ตาม protocol และแยกจากยาลดกรด/แร่ธาตุเมื่อรับประทาน", source:"Antibiotics.pdf หน้า 17-19" },
   { name:"Amoxicillin", generic:"Amoxicillin", group:"Aminopenicillin", routes:["PO"], max:90, unit:"mg/kg/day", warning:"ค่าสูงสุดนี้เป็นค่า demo ต้องยืนยันตามข้อบ่งใช้", nursing:"ตรวจประวัติแพ้ penicillin และติดตามผื่น/ท้องเสีย", source:"Demo dataset - ต้องตรวจสอบโดยเภสัชกร" },
 ];
+drugs = [...demoDrugs];
 
 function esc(value = "") {
   return String(value).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
@@ -56,11 +58,35 @@ async function boot() {
     const { data, error } = await supabaseClient.auth.getSession();
     if (error) throw error;
     state.user = data.session?.user || db.demoUser;
+    await loadMedications();
   } catch (error) {
     console.warn("Supabase init failed, continuing in local mode", error);
     supabaseClient = null;
   }
   render();
+}
+
+async function loadMedications() {
+  if (!supabaseClient) return;
+  const { data, error } = await supabaseClient
+    .from("medications")
+    .select("name,generic,group_name,routes,max_dose,max_dose_unit,warning,nursing,source,status")
+    .eq("status", "approved")
+    .order("name", { ascending: true });
+
+  if (error || !data?.length) return;
+
+  drugs = data.map(row => ({
+    name: row.name,
+    generic: row.generic || row.name,
+    group: row.group_name || "Medication",
+    routes: Array.isArray(row.routes) ? row.routes : String(row.routes || "").split(",").map(route => route.trim()).filter(Boolean),
+    max: row.max_dose == null ? null : Number(row.max_dose),
+    unit: row.max_dose_unit || "",
+    warning: row.warning || "ต้องตรวจสอบคำสั่งแพทย์ ข้อบ่งใช้ และ protocol ของหน่วยงานก่อนใช้ยา",
+    nursing: row.nursing || "ติดตามอาการผู้ป่วยตามแนวทางของหน่วยงาน",
+    source: row.source || "Supabase medication database",
+  }));
 }
 
 function setupServiceWorker() {
@@ -139,6 +165,7 @@ async function submitAuth(event) {
       const { data, error } = await request;
       if (error) throw error;
       state.user = data.user;
+      await loadMedications();
     } else {
       state.user = { id:"demo-user", email:values.email, user_metadata:{ display_name:values.name || "ผู้ใช้งานเดโม" } };
       db.demoUser = state.user;

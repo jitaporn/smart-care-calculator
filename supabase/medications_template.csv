@@ -1,0 +1,4 @@
+name,generic,group_name,routes,max_dose,max_dose_unit,warning,nursing,source,status
+Amoxicillin,Amoxicillin,Aminopenicillin,"PO",90,mg/kg/day,"ตรวจสอบประวัติแพ้ penicillin และข้อบ่งใช้","ติดตามผื่น ท้องเสีย อาการแพ้ และให้คำแนะนำการรับประทานยา","Hospital protocol 2026",approved
+Cefazolin,Cefazolin sodium,1st generation cephalosporin,"IV,IM",100,mg/kg/day,"ปรับขนาดตามไตและข้อบ่งใช้","ติดตามอาการแพ้ ปริมาณปัสสาวะ และการทำงานของไต","Antibiotics.pdf",approved
+Dopamine,Dopamine,Vasopressor,"IV",20,mcg/kg/min,"ใช้ตาม ICU protocol และตรวจสอบความเข้มข้นก่อนให้ยา","ติดตาม BP, HR, urine output และ IV site","ICU protocol",approved

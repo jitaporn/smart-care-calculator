@@ -1,4 +1,4 @@
-const APP_VERSION = "1.0.7";
+const APP_VERSION = "1.1.0";
 const CACHE = `smart-care-v${APP_VERSION}`;
 const ASSETS = [
   "./",
