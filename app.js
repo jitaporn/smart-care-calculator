@@ -71,29 +71,29 @@ function renderAuth() {
   const register = state.authMode === "register";
   $("#app").innerHTML = `
     <main class="auth">
-      <section class="auth-layout">
-        <div class="auth-brand">
-          <div class="mark">+</div>
-          <p class="eyebrow">SMART CLINICAL WORKSPACE</p>
-          <h1>Smart Care<br>Calculator</h1>
-          <p>คำนวณยาและสารน้ำ พร้อม workflow ตรวจทานข้อมูลจากใบสั่งยาโดยบุคลากรทางการแพทย์</p>
-          <div class="trust-row"><span>OCR review</span><span>Dose calculation</span><span>Audit history</span></div>
-        </div>
+      <section class="auth-layout auth-simple">
         <form class="auth-panel" id="authForm">
+          <div class="login-brand">
+            <div class="pill-logo" aria-hidden="true">
+              <svg viewBox="0 0 32 32" role="img">
+                <path d="M11 21 21 11a5.2 5.2 0 1 1 7.4 7.4l-10 10A5.2 5.2 0 1 1 11 21Z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+                <path d="m16 16 7 7" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <div>
+              <h1>Smart Care Calculator</h1>
+              <p>CLINICAL DOSE CALCULATOR</p>
+            </div>
+          </div>
           <div class="segmented">
             <button type="button" class="${!register ? "active" : ""}" data-auth="login">เข้าสู่ระบบ</button>
             <button type="button" class="${register ? "active" : ""}" data-auth="register">สมัครสมาชิก</button>
-          </div>
-          <div>
-            <p class="eyebrow">${register ? "CREATE ACCOUNT" : "WELCOME BACK"}</p>
-            <h2>${register ? "เริ่มใช้งาน Smart Care" : "เข้าสู่ระบบเพื่อทำงานต่อ"}</h2>
           </div>
           ${register ? `<label>ชื่อที่แสดง<input name="name" required placeholder="เช่น พยาบาลสมหญิง"></label>` : ""}
           <label>อีเมล<input name="email" type="email" required autocomplete="email" placeholder="name@hospital.org"></label>
           <label>รหัสผ่าน<input name="password" type="password" minlength="6" required autocomplete="${register ? "new-password" : "current-password"}"></label>
           ${!register ? `<label class="check"><input name="remember" type="checkbox"> จดจำการเข้าสู่ระบบบนอุปกรณ์นี้</label>` : ""}
           <button class="primary wide">${register ? "สมัครสมาชิก" : "เข้าสู่ระบบ"}</button>
-          <p class="form-note">${cloudEnabled ? "บัญชีและ session จัดการด้วย Supabase Auth" : "Demo mode: ข้อมูลเก็บใน browser เครื่องนี้เท่านั้น"}</p>
         </form>
       </section>
     </main>`;
