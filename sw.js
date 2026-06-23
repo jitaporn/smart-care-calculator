@@ -1,4 +1,4 @@
-const CACHE = "smart-care-v2";
+const CACHE = "smart-care-v3";
 const ASSETS = ["./", "./index.html", "./styles.css", "./config.js", "./app.js", "./manifest.webmanifest", "./icon.svg"];
 
 self.addEventListener("install", event => {

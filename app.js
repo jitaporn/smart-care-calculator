@@ -3,7 +3,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
 const CONFIG = window.SMART_CARE_CONFIG || {};
 const cloudEnabled = Boolean(CONFIG.supabaseUrl && CONFIG.supabaseAnonKey);
-let supabase = null;
+let supabaseClient = null;
 let cameraStream = null;
 let pendingImage = null;
 
@@ -45,12 +45,19 @@ function esc(value = "") {
 
 async function boot() {
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(() => {});
-  if (cloudEnabled && window.supabase) {
-    supabase = window.supabase.createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey);
-    const { data } = await supabase.auth.getSession();
-    state.user = data.session?.user || null;
-  } else {
-    state.user = db.demoUser;
+  state.user = db.demoUser;
+  render();
+
+  if (!cloudEnabled || !window.supabase) return;
+
+  try {
+    supabaseClient = window.supabase.createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey);
+    const { data, error } = await supabaseClient.auth.getSession();
+    if (error) throw error;
+    state.user = data.session?.user || db.demoUser;
+  } catch (error) {
+    console.warn("Supabase init failed, continuing in local mode", error);
+    supabaseClient = null;
   }
   render();
 }
@@ -99,10 +106,10 @@ async function submitAuth(event) {
   const values = Object.fromEntries(new FormData(event.currentTarget));
   setBusy(event.submitter, true, "กำลังดำเนินการ...");
   try {
-    if (supabase) {
+    if (supabaseClient) {
       const request = state.authMode === "register"
-        ? supabase.auth.signUp({ email: values.email, password: values.password, options: { data: { display_name: values.name } } })
-        : supabase.auth.signInWithPassword({ email: values.email, password: values.password });
+        ? supabaseClient.auth.signUp({ email: values.email, password: values.password, options: { data: { display_name: values.name } } })
+        : supabaseClient.auth.signInWithPassword({ email: values.email, password: values.password });
       const { data, error } = await request;
       if (error) throw error;
       state.user = data.user;
@@ -421,8 +428,8 @@ function calculateFluid() {
 async function saveCalculation(item) {
   const record = { ...item, iso:new Date().toISOString() };
   db.history = [record, ...db.history].slice(0, 200);
-  if (supabase) {
-    const { error } = await supabase.from("calculations").insert({ user_id:state.user.id, patient_name:item.patient, bed:item.bed, medication_name:item.drug, input_summary:item.input, result_summary:item.result });
+  if (supabaseClient) {
+    const { error } = await supabaseClient.from("calculations").insert({ user_id:state.user.id, patient_name:item.patient, bed:item.bed, medication_name:item.drug, input_summary:item.input, result_summary:item.result });
     if (error) toast("บันทึกในเครื่องแล้ว แต่ Supabase ไม่สำเร็จ", "error");
   }
   toast("บันทึกประวัติแล้ว");
@@ -469,9 +476,9 @@ async function runOcr(event) {
   setBusy(event.currentTarget, true, "กำลังอ่านและแยกข้อมูล...");
   try {
     let result;
-    if (supabase) {
+    if (supabaseClient) {
       const base64 = await fileToBase64(pendingImage);
-      const { data, error } = await supabase.functions.invoke("process-prescription", { body:{ file_name:pendingImage.name, mime_type:pendingImage.type, file_base64:base64 } });
+      const { data, error } = await supabaseClient.functions.invoke("process-prescription", { body:{ file_name:pendingImage.name, mime_type:pendingImage.type, file_base64:base64 } });
       if (error) throw error;
       result = data;
     } else {
@@ -518,7 +525,7 @@ function filterHistory() {
 
 async function signOut() {
   stopCamera();
-  if (supabase) await supabase.auth.signOut();
+  if (supabaseClient) await supabaseClient.auth.signOut();
   db.demoUser = null; state.user = null; state.tab = "home"; render();
 }
 
