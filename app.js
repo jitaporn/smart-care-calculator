@@ -1,6 +1,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
+const APP_VERSION = "1.0.6";
 const CONFIG = window.SMART_CARE_CONFIG || {};
 const cloudEnabled = Boolean(CONFIG.supabaseUrl && CONFIG.supabaseAnonKey);
 let supabaseClient = null;
@@ -237,14 +238,13 @@ function viewScan() {
     <div class="scan-steps">${steps.map(([id,n,label]) => `<div class="${state.scanStage === id ? "active" : ""} ${state.extracted && id !== "upload" ? "done" : ""}"><span>${n}</span>${label}</div>`).join("")}</div>
     <div class="workspace scan-layout">
       <section class="surface">
-        <div class="section-heading"><span>⌗</span><div><h2>Typhoon OCR</h2><p>ถ่ายภาพหรืออัปโหลดใบสั่งยา ระบบจะส่งภาพผ่าน Supabase Edge Function</p></div></div>
+        <div class="section-heading"><span>⌗</span><div><h2>OCR</h2></div></div>
         <video id="camera" class="media hidden" autoplay playsinline muted></video>
         <canvas id="captureCanvas" class="media hidden"></canvas>
         <div class="upload-zone" id="dropZone"><span>⇧</span><b>ลากไฟล์มาวาง หรือเลือกไฟล์</b><small>JPG, PNG, PDF, CSV, XLSX</small><button class="secondary" id="chooseFile">เลือกไฟล์</button></div>
         <div class="button-row"><button class="secondary" id="openCamera">เปิดกล้อง</button><button class="secondary hidden" id="capturePhoto">ถ่ายภาพ</button><button class="ghost hidden" id="closeCamera">ปิดกล้อง</button></div>
         <div id="previewArea"></div>
-        <button class="primary wide" id="runOcr" ${pendingImage ? "" : "disabled"}>อ่านเอกสารด้วย Typhoon OCR</button>
-        <p class="form-note">${cloudEnabled ? "ไฟล์จะถูกส่งไปยัง Edge Function และไม่เปิดเผย Typhoon API key" : "Demo mode จะใช้ parser ภายใน browser; ตั้งค่า Supabase เพื่อเรียก OCR จริง"}</p>
+        <button class="primary wide" id="runOcr" ${pendingImage ? "" : "disabled"}>อ่านเอกสารด้วย OCR</button>
       </section>
       <aside class="surface">
         <div class="section-heading"><span>✓</span><div><h2>ตรวจทานก่อนคำนวณ</h2><p>แก้ไขข้อความ OCR หรือค่าที่ AI แยกได้ก่อนยืนยัน</p></div></div>
@@ -328,8 +328,9 @@ function viewProfile() {
       <section class="surface"><div class="section-heading"><span>⚙</span><div><h2>การเชื่อมต่อระบบ</h2><p>สถานะ backend และ AI services</p></div></div>
         <div class="connection-list">
           <div><span><b>Supabase</b><small>Auth, Database, Storage</small></span><strong class="${cloudEnabled ? "ok" : "warn"}">${cloudEnabled ? "พร้อมใช้" : "ยังไม่ตั้งค่า"}</strong></div>
-          <div><span><b>Typhoon OCR</b><small>ผ่าน Edge Function /ocr</small></span><strong class="${cloudEnabled ? "ok" : "warn"}">${cloudEnabled ? "พร้อมทดสอบ" : "Demo parser"}</strong></div>
-          <div><span><b>Typhoon LLM</b><small>แยกข้อมูลเป็น structured JSON</small></span><strong class="${cloudEnabled ? "ok" : "warn"}">${cloudEnabled ? "พร้อมทดสอบ" : "Demo parser"}</strong></div>
+          <div><span><b>OCR</b><small>ผ่าน Edge Function /ocr</small></span><strong class="${cloudEnabled ? "ok" : "warn"}">${cloudEnabled ? "พร้อมทดสอบ" : "Demo parser"}</strong></div>
+          <div><span><b>LLM</b><small>แยกข้อมูลเป็น structured JSON</small></span><strong class="${cloudEnabled ? "ok" : "warn"}">${cloudEnabled ? "พร้อมทดสอบ" : "Demo parser"}</strong></div>
+          <div><span><b>App version</b><small>ใช้ตรวจสอบหลังอัปเดต</small></span><strong>v${APP_VERSION}</strong></div>
         </div>
       </section>
       <section class="surface"><div class="section-heading"><span>▤</span><div><h2>ข้อมูลในอุปกรณ์</h2><p>${db.history.length} รายการประวัติ · ${db.favorites.length} ยาโปรด</p></div></div><button class="danger wide" id="clearLocal">ล้างข้อมูลในอุปกรณ์</button></section>

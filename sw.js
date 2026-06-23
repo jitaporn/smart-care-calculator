@@ -1,5 +1,14 @@
-const CACHE = "smart-care-v5";
-const ASSETS = ["./", "./index.html", "./styles.css?v=5", "./config.js?v=5", "./app.js?v=5", "./manifest.webmanifest", "./icon.svg"];
+const APP_VERSION = "1.0.6";
+const CACHE = `smart-care-v${APP_VERSION}`;
+const ASSETS = [
+  "./",
+  "./index.html",
+  `./styles.css?v=${APP_VERSION}`,
+  `./config.js?v=${APP_VERSION}`,
+  `./app.js?v=${APP_VERSION}`,
+  "./manifest.webmanifest",
+  "./icon.svg",
+];
 
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));
@@ -13,5 +22,14 @@ self.addEventListener("activate", event => {
 
 self.addEventListener("fetch", event => {
   if (event.request.method !== "GET") return;
-  event.respondWith(caches.match(event.request).then(cached => cached || fetch(event.request)));
+  event.respondWith((async () => {
+    const cache = await caches.open(CACHE);
+    try {
+      const response = await fetch(event.request);
+      if (response && response.ok) cache.put(event.request, response.clone());
+      return response;
+    } catch {
+      return (await cache.match(event.request)) || (await caches.match(event.request));
+    }
+  })());
 });
