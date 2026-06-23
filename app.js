@@ -1,7 +1,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
-const APP_VERSION = "1.0.6";
+const APP_VERSION = "1.0.7";
 const CONFIG = window.SMART_CARE_CONFIG || {};
 const cloudEnabled = Boolean(CONFIG.supabaseUrl && CONFIG.supabaseAnonKey);
 let supabaseClient = null;
@@ -45,7 +45,7 @@ function esc(value = "") {
 }
 
 async function boot() {
-  if ("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(() => {});
+  setupServiceWorker();
   state.user = db.demoUser;
   render();
 
@@ -61,6 +61,31 @@ async function boot() {
     supabaseClient = null;
   }
   render();
+}
+
+function setupServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+
+  let refreshed = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (refreshed) return;
+    refreshed = true;
+    window.location.reload();
+  });
+
+  navigator.serviceWorker.register(`./sw.js?v=${APP_VERSION}`).then(registration => {
+    registration.update().catch(() => {});
+    if (registration.waiting) registration.waiting.postMessage({ type: "SKIP_WAITING" });
+    registration.addEventListener("updatefound", () => {
+      const worker = registration.installing;
+      if (!worker) return;
+      worker.addEventListener("statechange", () => {
+        if (worker.state === "installed" && navigator.serviceWorker.controller) {
+          worker.postMessage({ type: "SKIP_WAITING" });
+        }
+      });
+    });
+  }).catch(() => {});
 }
 
 function render() {
