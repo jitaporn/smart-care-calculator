@@ -1,0 +1,17 @@
+{
+  "name": "Smart Care Calculator",
+  "short_name": "Smart Care",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#eaf6fb",
+  "theme_color": "#0076a8",
+  "description": "Clinical calculation and prescription review workspace.",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
