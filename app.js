@@ -1,12 +1,15 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
-const APP_VERSION = "1.1.0";
+const APP_VERSION = "1.3.0";
 const CONFIG = window.SMART_CARE_CONFIG || {};
 const cloudEnabled = Boolean(CONFIG.supabaseUrl && CONFIG.supabaseAnonKey);
 let supabaseClient = null;
 let cameraStream = null;
 let pendingImage = null;
+let cameraBrightness = 100;
+let scanProgressTimer = null;
+let scanProgressStartedAt = 0;
 
 const state = {
   tab: "scan",
@@ -292,11 +295,31 @@ function viewScan() {
       <section class="surface">
         <div class="section-heading"><span>⌗</span><div><h2>OCR</h2></div></div>
         <video id="camera" class="media hidden" autoplay playsinline muted></video>
+        <div class="camera-tools hidden" id="cameraTools">
+          <label>ปรับความสว่างกล้อง <span id="brightnessValue">100%</span>
+            <input id="brightnessSlider" type="range" min="55" max="145" step="5" value="100">
+          </label>
+        </div>
         <canvas id="captureCanvas" class="media hidden"></canvas>
         <div class="upload-zone" id="dropZone"><span>⇧</span><b>ลากไฟล์มาวาง หรือเลือกไฟล์</b><small>JPG, PNG, PDF, CSV, XLSX</small><button class="secondary" id="chooseFile">เลือกไฟล์</button></div>
         <div class="button-row"><button class="secondary" id="openCamera">เปิดกล้อง</button><button class="secondary hidden" id="capturePhoto">ถ่ายภาพ</button><button class="ghost hidden" id="closeCamera">ปิดกล้อง</button></div>
         <div id="previewArea"></div>
         <button class="primary wide" id="runOcr" ${pendingImage ? "" : "disabled"}>อ่านเอกสารด้วย OCR</button>
+        <div class="ocr-progress hidden" id="ocrProgress" aria-live="polite">
+          <div class="ocr-progress-head">
+            <strong id="ocrProgressTitle">กำลังเตรียมเอกสาร...</strong>
+            <span id="ocrProgressTime">0 วินาที</span>
+          </div>
+          <div class="ocr-progress-track"><span id="ocrProgressBar"></span></div>
+          <ol id="ocrProgressSteps">
+            <li class="active" data-step="upload">กำลังอัปโหลดเอกสาร...</li>
+            <li data-step="ocr">กำลังอ่านข้อความด้วย OCR...</li>
+            <li data-step="extract">กำลังแยกชื่อยาและขนาดยา...</li>
+            <li data-step="save">กำลังบันทึกผล...</li>
+            <li data-step="done">เสร็จแล้ว กรุณาตรวจทาน</li>
+          </ol>
+          <p class="ocr-progress-note hidden" id="ocrProgressNote">ใช้เวลานานกว่าปกติ กรุณารอสักครู่</p>
+        </div>
       </section>
       <aside class="surface">
         <div class="section-heading"><span>✓</span><div><h2>ตรวจทานก่อนคำนวณ</h2><p>แก้ไขข้อความ OCR หรือค่าที่ AI แยกได้ก่อนยืนยัน</p></div></div>
@@ -398,6 +421,7 @@ function bindView() {
   $("#openCamera")?.addEventListener("click", openCamera);
   $("#capturePhoto")?.addEventListener("click", capturePhoto);
   $("#closeCamera")?.addEventListener("click", stopCamera);
+  $("#brightnessSlider")?.addEventListener("input", updateCameraBrightness);
   $("#runOcr")?.addEventListener("click", runOcr);
   $("#confirmScan")?.addEventListener("click", confirmScan);
   const zone = $("#dropZone");
@@ -506,14 +530,27 @@ async function openCamera() {
   try {
     cameraStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:"environment" }, audio:false });
     $("#camera").srcObject = cameraStream;
-    $("#camera").classList.remove("hidden"); $("#capturePhoto").classList.remove("hidden"); $("#closeCamera").classList.remove("hidden");
+    $("#camera").classList.remove("hidden"); $("#capturePhoto").classList.remove("hidden"); $("#closeCamera").classList.remove("hidden"); $("#cameraTools").classList.remove("hidden");
+    updateCameraBrightness();
   } catch { toast("เปิดกล้องไม่ได้ กรุณาอนุญาตกล้องและใช้งานผ่าน HTTPS หรือ localhost", "error"); }
+}
+
+function updateCameraBrightness() {
+  const slider = $("#brightnessSlider");
+  cameraBrightness = Number(slider?.value || cameraBrightness || 100);
+  const value = $("#brightnessValue");
+  const camera = $("#camera");
+  if (value) value.textContent = `${cameraBrightness}%`;
+  if (camera) camera.style.filter = `brightness(${cameraBrightness}%)`;
 }
 
 function capturePhoto() {
   const video = $("#camera"), canvas = $("#captureCanvas");
   canvas.width = video.videoWidth; canvas.height = video.videoHeight;
-  canvas.getContext("2d").drawImage(video, 0, 0);
+  const context = canvas.getContext("2d");
+  context.filter = `brightness(${cameraBrightness}%)`;
+  context.drawImage(video, 0, 0);
+  context.filter = "none";
   canvas.toBlob(blob => {
     pendingImage = new File([blob], `prescription-${Date.now()}.jpg`, { type:"image/jpeg" });
     handleFile(pendingImage); stopCamera();
@@ -522,26 +559,80 @@ function capturePhoto() {
 
 function stopCamera() {
   cameraStream?.getTracks().forEach(track => track.stop()); cameraStream = null;
+  $("#cameraTools")?.classList.add("hidden");
+  const camera = $("#camera");
+  if (camera) camera.style.filter = "";
+}
+
+function startOcrProgress() {
+  scanProgressStartedAt = Date.now();
+  $("#ocrProgress")?.classList.remove("hidden");
+  updateOcrProgress("upload");
+  clearInterval(scanProgressTimer);
+  scanProgressTimer = setInterval(() => {
+    const seconds = Math.max(0, Math.floor((Date.now() - scanProgressStartedAt) / 1000));
+    const timeNode = $("#ocrProgressTime");
+    if (timeNode) timeNode.textContent = `${seconds} วินาที`;
+    $("#ocrProgressNote")?.classList.toggle("hidden", seconds < 45);
+  }, 500);
+}
+
+function updateOcrProgress(step) {
+  const order = ["upload", "ocr", "extract", "save", "done"];
+  const titles = {
+    upload: "กำลังอัปโหลดเอกสาร...",
+    ocr: "กำลังอ่านข้อความด้วย OCR...",
+    extract: "กำลังแยกชื่อยาและขนาดยา...",
+    save: "กำลังบันทึกผล...",
+    done: "เสร็จแล้ว กรุณาตรวจทาน",
+  };
+  const index = Math.max(0, order.indexOf(step));
+  $("#ocrProgressTitle") && ($("#ocrProgressTitle").textContent = titles[step] || titles.upload);
+  $("#ocrProgressBar") && ($("#ocrProgressBar").style.width = `${[18, 45, 72, 88, 100][index]}%`);
+  $$("#ocrProgressSteps li").forEach(item => {
+    const itemIndex = order.indexOf(item.dataset.step);
+    item.classList.toggle("active", item.dataset.step === step);
+    item.classList.toggle("done", itemIndex >= 0 && itemIndex < index);
+  });
+}
+
+function stopOcrProgress(done = false) {
+  clearInterval(scanProgressTimer);
+  scanProgressTimer = null;
+  if (done) updateOcrProgress("done");
 }
 
 async function runOcr(event) {
   if (!pendingImage) return;
-  setBusy(event.currentTarget, true, "กำลังอ่านและแยกข้อมูล...");
+  const button = event.currentTarget;
+  setBusy(button, true, "กำลังอ่านเอกสาร...");
+  startOcrProgress();
   try {
     let result;
     if (supabaseClient) {
+      updateOcrProgress("upload");
       const base64 = await fileToBase64(pendingImage);
+      updateOcrProgress("ocr");
       const { data, error } = await supabaseClient.functions.invoke("process-prescription", { body:{ file_name:pendingImage.name, mime_type:pendingImage.type, file_base64:base64 } });
       if (error) throw error;
+      updateOcrProgress("save");
       result = data;
     } else {
+      updateOcrProgress("ocr");
+      await new Promise(resolve => setTimeout(resolve, 700));
+      updateOcrProgress("extract");
       result = demoExtract($("#ocrText").value || pendingImage.name);
       await new Promise(resolve => setTimeout(resolve, 700));
     }
+    stopOcrProgress(true);
+    setBusy(button, true, "เสร็จแล้ว");
+    await new Promise(resolve => setTimeout(resolve, 350));
     state.extracted = result; state.scanStage = "review"; renderView();
     toast("อ่านเอกสารแล้ว กรุณาตรวจทานทุกช่อง");
   } catch (error) {
-    toast(error.message || "OCR ไม่สำเร็จ", "error"); setBusy(event.currentTarget, false);
+    stopOcrProgress(false);
+    $("#ocrProgress")?.classList.add("hidden");
+    toast(error.message || "OCR ไม่สำเร็จ", "error"); setBusy(button, false);
   }
 }
 

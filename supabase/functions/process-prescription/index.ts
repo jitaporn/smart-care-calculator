@@ -13,6 +13,40 @@ function json(body: unknown, status = 200) {
   });
 }
 
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 45000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort("Request timeout"), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function parseJsonContent(content: string) {
+  const cleaned = content.replace(/^```json\s*|\s*```$/g, "").trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    return {
+      patient_name: null,
+      bed: null,
+      weight_kg: null,
+      age: null,
+      drug_name: null,
+      dose: null,
+      dose_unit: null,
+      frequency: null,
+      route: null,
+      stock_drug: null,
+      stock_unit: null,
+      stock_volume_ml: null,
+      confidence: 0,
+      uncertain_fields: ["llm_json_parse"],
+    };
+  }
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: cors });
 
@@ -39,11 +73,12 @@ Deno.serve(async (request) => {
       return json({ error: "Typhoon secrets are not configured" }, 500);
     }
 
-    const prompt = `อ่านข้อความใบสั่งยาภาษาไทย/อังกฤษจากภาพนี้อย่างละเอียด
-คงข้อความเดิม ตัวเลข หน่วย ตาราง และบรรทัดให้มากที่สุด
-ห้ามเดาหรือเติมข้อมูลที่มองไม่เห็น`;
+    const prompt = `Read this medical prescription image carefully.
+Extract the visible Thai and English text exactly as written.
+Preserve numbers, units, drug names, tables, line breaks, and dosing instructions.
+Do not infer or add information that is not visible.`;
 
-    const ocrResponse = await fetch(`${apiUrl}/chat/completions`, {
+    const ocrResponse = await fetchWithTimeout(`${apiUrl}/chat/completions`, {
       method: "POST",
       headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -58,23 +93,27 @@ Deno.serve(async (request) => {
         }],
       }),
     });
-    if (!ocrResponse.ok) throw new Error(`Typhoon OCR failed: ${ocrResponse.status}`);
+    if (!ocrResponse.ok) {
+      const detail = await ocrResponse.text();
+      throw new Error(`Typhoon OCR failed: ${ocrResponse.status} ${detail.slice(0, 300)}`);
+    }
     const ocrPayload = await ocrResponse.json();
     const rawText = ocrPayload.choices?.[0]?.message?.content || "";
 
-    const schemaPrompt = `แปลงข้อความใบสั่งยาต่อไปนี้เป็น JSON เท่านั้น
-ห้ามคำนวณขนาดยา ห้ามเดาข้อมูลที่ไม่มี ให้ใช้ null
-schema:
+    const schemaPrompt = `Convert the following prescription OCR text into JSON only.
+Do not calculate a final medication dose.
+Do not infer missing data; use null for missing or uncertain values.
+Return this exact schema:
 {"patient_name":string|null,"bed":string|null,"weight_kg":number|null,"age":string|null,
 "drug_name":string|null,"dose":number|null,"dose_unit":"mg"|"mcg"|"g"|"unit"|null,
 "frequency":string|null,"route":string|null,"stock_drug":number|null,
 "stock_unit":"mg"|"mcg"|"g"|"unit"|null,"stock_volume_ml":number|null,
 "confidence":number,"uncertain_fields":string[]}
 
-ข้อความ OCR:
+OCR text:
 ${rawText}`;
 
-    const llmResponse = await fetch(`${apiUrl}/chat/completions`, {
+    const llmResponse = await fetchWithTimeout(`${apiUrl}/chat/completions`, {
       method: "POST",
       headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -84,23 +123,30 @@ ${rawText}`;
         messages: [{ role: "user", content: schemaPrompt }],
       }),
     });
-    if (!llmResponse.ok) throw new Error(`Typhoon LLM failed: ${llmResponse.status}`);
+    if (!llmResponse.ok) {
+      const detail = await llmResponse.text();
+      throw new Error(`Typhoon LLM failed: ${llmResponse.status} ${detail.slice(0, 300)}`);
+    }
     const llmPayload = await llmResponse.json();
     const content = llmPayload.choices?.[0]?.message?.content || "{}";
-    const extracted = JSON.parse(content.replace(/^```json\s*|\s*```$/g, ""));
+    const extracted = parseJsonContent(content);
 
+    const warnings: string[] = [];
     const path = `${auth.user.id}/${crypto.randomUUID()}-${file_name || "prescription"}`;
     const bytes = Uint8Array.from(atob(file_base64), c => c.charCodeAt(0));
-    await supabase.storage.from("prescriptions").upload(path, bytes, { contentType: mime_type });
-    await supabase.from("prescription_scans").insert({
+    const upload = await supabase.storage.from("prescriptions").upload(path, bytes, { contentType: mime_type });
+    if (upload.error) warnings.push(`Storage upload skipped: ${upload.error.message}`);
+
+    const scanInsert = await supabase.from("prescription_scans").insert({
       user_id: auth.user.id,
-      storage_path: path,
+      storage_path: upload.error ? null : path,
       raw_ocr_text: rawText,
       extracted_data: extracted,
       confidence: extracted.confidence,
     });
+    if (scanInsert.error) warnings.push(`Scan history skipped: ${scanInsert.error.message}`);
 
-    return json({ raw_text: rawText, ...extracted });
+    return json({ raw_text: rawText, ...extracted, warnings });
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Unknown error" }, 500);
   }
