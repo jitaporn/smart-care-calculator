@@ -1,7 +1,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
-const APP_VERSION = "1.6.0";
+const APP_VERSION = "1.6.1";
 const CONFIG = window.SMART_CARE_CONFIG || {};
 const cloudEnabled = Boolean(CONFIG.supabaseUrl && CONFIG.supabaseAnonKey);
 let supabaseClient = null;
@@ -10,6 +10,25 @@ let pendingImage = null;
 let cameraBrightness = 100;
 let scanProgressTimer = null;
 let scanProgressStartedAt = 0;
+
+if (localStorage.getItem("snc_remember_login") == null) {
+  localStorage.setItem("snc_remember_login", "1");
+}
+
+const authStorage = {
+  getItem(key) { return localStorage.getItem(key) ?? sessionStorage.getItem(key); },
+  setItem(key, value) {
+    const remember = localStorage.getItem("snc_remember_login") === "1";
+    const target = remember ? localStorage : sessionStorage;
+    const other = remember ? sessionStorage : localStorage;
+    target.setItem(key, value);
+    other.removeItem(key);
+  },
+  removeItem(key) {
+    localStorage.removeItem(key);
+    sessionStorage.removeItem(key);
+  },
+};
 
 const state = {
   tab: "scan",
@@ -58,7 +77,9 @@ async function boot() {
   if (!cloudEnabled || !window.supabase) return;
 
   try {
-    supabaseClient = window.supabase.createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey);
+    supabaseClient = window.supabase.createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey, {
+      auth: { persistSession:true, autoRefreshToken:true, detectSessionInUrl:true, storage:authStorage },
+    });
     const { data, error } = await supabaseClient.auth.getSession();
     if (error) throw error;
     state.user = data.session?.user || db.demoUser;
@@ -147,14 +168,22 @@ function renderAuth() {
           </div>
           ${register ? `<label>ชื่อที่แสดง<input name="name" required placeholder="เช่น พยาบาลสมหญิง"></label>` : ""}
           <label>อีเมล<input name="email" type="email" required autocomplete="email" placeholder="name@hospital.org"></label>
-          <label>รหัสผ่าน<input name="password" type="password" minlength="6" required autocomplete="${register ? "new-password" : "current-password"}"></label>
-          ${!register ? `<label class="check"><input name="remember" type="checkbox"> จดจำการเข้าสู่ระบบบนอุปกรณ์นี้</label>` : ""}
+          <label>รหัสผ่าน<div class="password-field"><input name="password" id="authPassword" type="password" minlength="6" required autocomplete="${register ? "new-password" : "current-password"}"><button type="button" class="password-toggle" id="togglePassword" aria-label="แสดงรหัสผ่าน" aria-pressed="false" title="แสดงรหัสผ่าน"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div></label>
+          ${!register ? `<label class="check"><input name="remember" type="checkbox" ${localStorage.getItem("snc_remember_login") === "1" ? "checked" : ""}> จดจำการเข้าสู่ระบบบนอุปกรณ์นี้</label>` : ""}
           <button class="primary wide">${register ? "สมัครสมาชิก" : "เข้าสู่ระบบ"}</button>
         </form>
       </section>
     </main>`;
   $$("[data-auth]").forEach(button => button.onclick = () => { state.authMode = button.dataset.auth; renderAuth(); });
   $("#authForm").onsubmit = submitAuth;
+  $("#togglePassword").onclick = () => {
+    const input = $("#authPassword");
+    const showing = input.type === "text";
+    input.type = showing ? "password" : "text";
+    $("#togglePassword").setAttribute("aria-pressed", String(!showing));
+    $("#togglePassword").setAttribute("aria-label", showing ? "แสดงรหัสผ่าน" : "ซ่อนรหัสผ่าน");
+    $("#togglePassword").title = showing ? "แสดงรหัสผ่าน" : "ซ่อนรหัสผ่าน";
+  };
 }
 
 async function submitAuth(event) {
@@ -163,6 +192,9 @@ async function submitAuth(event) {
   setBusy(event.submitter, true, "กำลังดำเนินการ...");
   try {
     if (supabaseClient) {
+      if (state.authMode === "login") {
+        localStorage.setItem("snc_remember_login", values.remember === "on" ? "1" : "0");
+      }
       const request = state.authMode === "register"
         ? supabaseClient.auth.signUp({ email: values.email, password: values.password, options: { data: { display_name: values.name } } })
         : supabaseClient.auth.signInWithPassword({ email: values.email, password: values.password });
