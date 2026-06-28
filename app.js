@@ -1,7 +1,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
-const APP_VERSION = "1.3.0";
+const APP_VERSION = "1.4.0";
 const CONFIG = window.SMART_CARE_CONFIG || {};
 const cloudEnabled = Boolean(CONFIG.supabaseUrl && CONFIG.supabaseAnonKey);
 let supabaseClient = null;
@@ -17,6 +17,7 @@ const state = {
   calcMode: "medicine",
   scanStage: "upload",
   extracted: null,
+  scanResult: null,
   selectedDrug: null,
   user: null,
 };
@@ -136,7 +137,7 @@ function renderAuth() {
               </svg>
             </div>
             <div>
-              <h1>Smart Care Calculator</h1>
+              <h1>Smart Nurse Calculator</h1>
               <p>CLINICAL DOSE CALCULATOR</p>
             </div>
           </div>
@@ -189,7 +190,7 @@ function renderShell() {
     <div class="app-shell">
       <header class="topbar">
         <div class="header-inner">
-          <button class="brand-button" data-tab="scan"><span class="mini-mark">+</span><span><b>Smart Care</b><small>CLINICAL CALCULATOR</small></span></button>
+          <button class="brand-button" data-tab="scan"><span class="mini-mark">+</span><span><b>Smart Nurse</b><small>CLINICAL CALCULATOR</small></span></button>
           <div class="status ${cloudEnabled ? "online" : ""}"><i></i>${cloudEnabled ? "Cloud connected" : "Demo mode"}</div>
           <button class="icon-button" id="signOut" title="ออกจากระบบ">↪</button>
         </div>
@@ -334,10 +335,12 @@ function viewScan() {
           <label>หน่วย<input id="reviewUnit" value="${esc(state.extracted?.dose_unit || "mg")}"></label>
           <label>ความถี่<input id="reviewFrequency" value="${esc(state.extracted?.frequency || "")}"></label>
           <label>ตัวยาที่มี<input id="reviewStock" type="number" value="${esc(state.extracted?.stock_drug || "")}"></label>
-          <label>ปริมาตร (mL)<input id="reviewVolume" type="number" value="${esc(state.extracted?.stock_volume_ml || "")}"></label>
+          <label>หน่วยตัวยาที่มี<select id="reviewStockUnit">${["mg","mcg","g","unit"].map(unit => `<option ${unit === (state.extracted?.stock_unit || state.extracted?.dose_unit || "mg") ? "selected" : ""}>${unit}</option>`).join("")}</select></label>
+          <label>ปริมาตรตัวทำละลาย (mL/cc)<input id="reviewVolume" type="number" value="${esc(state.extracted?.stock_volume_ml || "")}"></label>
         </div>
         <div class="confidence"><span>AI confidence</span><b>${Math.round((state.extracted?.confidence || 0) * 100)}%</b></div>
-        <button class="primary wide" id="confirmScan" ${state.extracted ? "" : "disabled"}>ยืนยันและส่งไปคำนวณ</button>
+        <button class="primary wide" id="confirmScan" ${state.extracted ? "" : "disabled"}>คำนวณปริมาตรยา</button>
+        <div id="scanCalculationResult">${state.scanResult ? scanResultHtml(state.scanResult) : ""}</div>
       </aside>
     </div>`;
 }
@@ -424,6 +427,13 @@ function bindView() {
   $("#brightnessSlider")?.addEventListener("input", updateCameraBrightness);
   $("#runOcr")?.addEventListener("click", runOcr);
   $("#confirmScan")?.addEventListener("click", confirmScan);
+  $("#saveScanCalculation")?.addEventListener("click", () => saveCalculation({
+    patient: state.extracted.patient_name,
+    bed: state.extracted.bed,
+    drug: state.extracted.drug_name || "ไม่ระบุยา",
+    input: `${state.extracted.dose} ${state.extracted.dose_unit} จาก ${state.extracted.stock_drug} ${state.extracted.stock_unit}/${state.extracted.stock_volume_ml} mL`,
+    result: `${format(state.scanResult.answer)} mL (cc)`,
+  }));
   const zone = $("#dropZone");
   if (zone) {
     zone.ondragover = event => { event.preventDefault(); zone.classList.add("dragging"); };
@@ -613,8 +623,16 @@ async function runOcr(event) {
       updateOcrProgress("upload");
       const base64 = await fileToBase64(pendingImage);
       updateOcrProgress("ocr");
-      const { data, error } = await supabaseClient.functions.invoke("process-prescription", { body:{ file_name:pendingImage.name, mime_type:pendingImage.type, file_base64:base64 } });
-      if (error) throw error;
+      const processedMimeType = pendingImage.type.startsWith("image/") ? "image/png" : pendingImage.type;
+      const { data, error } = await supabaseClient.functions.invoke("process-prescription", { body:{ file_name:pendingImage.name, mime_type:processedMimeType, file_base64:base64 } });
+      if (error) {
+        let detail = "";
+        try {
+          const payload = await error.context?.json();
+          detail = payload?.error || payload?.message || "";
+        } catch {}
+        throw new Error(detail || error.message || "Edge Function ไม่สามารถประมวลผลเอกสารได้");
+      }
       updateOcrProgress("save");
       result = data;
     } else {
@@ -627,7 +645,7 @@ async function runOcr(event) {
     stopOcrProgress(true);
     setBusy(button, true, "เสร็จแล้ว");
     await new Promise(resolve => setTimeout(resolve, 350));
-    state.extracted = result; state.scanStage = "review"; renderView();
+    state.extracted = result; state.scanResult = null; state.scanStage = "review"; renderView();
     toast("อ่านเอกสารแล้ว กรุณาตรวจทานทุกช่อง");
   } catch (error) {
     stopOcrProgress(false);
@@ -644,19 +662,38 @@ function demoExtract(text) {
   return { raw_text:text, patient_name:"", bed:"", weight_kg:weight?.[1] || "", age:"", drug_name:drug?.name || "", dose:dose?.[1] || "", dose_unit:dose?.[2] || "mg", frequency:"", stock_drug:stock?.[1] || "", stock_volume_ml:stock?.[3] || "", confidence:.35 };
 }
 
+function scanResultHtml(result) {
+  return `<section class="scan-result" aria-live="polite">
+    <p class="eyebrow">ผลการคำนวณจากเอกสาร</p>
+    <div class="answer"><span>ปริมาตรยาที่ต้องใช้</span><b>${format(result.answer)} mL (cc)</b></div>
+    <div class="formula"><b>สูตร</b><code>(${format(result.ordered)} ${result.stockUnit} × ${format(result.volume)} mL) ÷ ${format(result.stock)} ${result.stockUnit}</code></div>
+    <div class="review-box"><b>กรุณาตรวจทานก่อนให้ยา</b><ul><li>ยืนยันขนาดยาที่แพทย์สั่ง</li><li>ยืนยันความแรงและปริมาตรบนฉลากยา</li><li>mL และ cc มีปริมาตรเท่ากัน แต่ควรบันทึกด้วยหน่วย mL</li></ul></div>
+    <button class="primary wide" id="saveScanCalculation">ยืนยันและบันทึกประวัติ</button>
+  </section>`;
+}
+
 function confirmScan() {
   state.extracted = {
     raw_text:$("#ocrText").value, patient_name:$("#reviewPatient").value, bed:$("#reviewBed").value,
     weight_kg:$("#reviewWeight").value, age:$("#reviewAge").value, drug_name:$("#reviewDrug").value,
     dose:$("#reviewDose").value, dose_unit:$("#reviewUnit").value, frequency:$("#reviewFrequency").value,
-    stock_drug:$("#reviewStock").value, stock_volume_ml:$("#reviewVolume").value, confidence:state.extracted.confidence
+    stock_drug:$("#reviewStock").value, stock_unit:$("#reviewStockUnit").value,
+    stock_volume_ml:$("#reviewVolume").value, confidence:state.extracted.confidence
   };
-  state.scanStage = "confirm"; state.tab = "home"; state.calcMode = "medicine"; renderShell();
-  $("#patientName").value = state.extracted.patient_name; $("#bed").value = state.extracted.bed; $("#weight").value = state.extracted.weight_kg;
-  $("#age").value = state.extracted.age; $("#drug").value = state.extracted.drug_name; $("#orderedDose").value = state.extracted.dose;
-  $("#orderedUnit").value = ["mg","mcg","g","unit"].includes(state.extracted.dose_unit) ? state.extracted.dose_unit : "mg";
-  $("#stockDrug").value = state.extracted.stock_drug; $("#stockVolume").value = state.extracted.stock_volume_ml;
-  toast("ส่งข้อมูลที่ตรวจทานแล้วไปหน้าเครื่องคำนวณ");
+  try {
+    const ordered = Number(state.extracted.dose);
+    const stock = Number(state.extracted.stock_drug);
+    const volume = Number(state.extracted.stock_volume_ml);
+    if (!(ordered > 0 && stock > 0 && volume > 0)) {
+      throw new Error("กรอกขนาดยาที่สั่ง ตัวยาที่มี และปริมาตรตัวทำละลายให้ครบ");
+    }
+    const stockUnit = state.extracted.stock_unit || "mg";
+    const orderedInStockUnit = convert(ordered, state.extracted.dose_unit || "mg", stockUnit);
+    state.scanResult = { ordered: orderedInStockUnit, stock, stockUnit, volume, answer: (orderedInStockUnit * volume) / stock };
+    state.scanStage = "confirm";
+    renderView();
+    $("#scanCalculationResult")?.scrollIntoView({ behavior:"smooth", block:"center" });
+  } catch (error) { toast(error.message, "error"); }
 }
 
 function filterHistory() {
@@ -673,12 +710,28 @@ async function signOut() {
   db.demoUser = null; state.user = null; state.tab = "home"; render();
 }
 
-function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result).split(",")[1]);
-    reader.onerror = reject; reader.readAsDataURL(file);
-  });
+async function fileToBase64(file) {
+  if (!file.type.startsWith("image/")) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(",")[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.max(1, Math.min(4, 1600 / bitmap.width));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  const context = canvas.getContext("2d");
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  context.filter = "contrast(115%) brightness(102%)";
+  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  return canvas.toDataURL("image/png").split(",")[1];
 }
 
 function setBusy(button, busy, label) {

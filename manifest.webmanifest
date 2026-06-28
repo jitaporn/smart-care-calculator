@@ -1,6 +1,6 @@
 {
-  "name": "Smart Care Calculator",
-  "short_name": "Smart Care",
+  "name": "Smart Nurse Calculator",
+  "short_name": "Smart Nurse",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#eaf6fb",

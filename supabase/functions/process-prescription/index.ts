@@ -13,7 +13,7 @@ function json(body: unknown, status = 200) {
   });
 }
 
-async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 45000) {
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 90000) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort("Request timeout"), timeoutMs);
   try {
@@ -113,6 +113,7 @@ Return this exact schema:
 OCR text:
 ${rawText}`;
 
+    const warnings: string[] = [];
     const llmResponse = await fetchWithTimeout(`${apiUrl}/chat/completions`, {
       method: "POST",
       headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -123,15 +124,16 @@ ${rawText}`;
         messages: [{ role: "user", content: schemaPrompt }],
       }),
     });
+    let extracted;
     if (!llmResponse.ok) {
       const detail = await llmResponse.text();
-      throw new Error(`Typhoon LLM failed: ${llmResponse.status} ${detail.slice(0, 300)}`);
+      warnings.push(`LLM extraction skipped: ${llmResponse.status} ${detail.slice(0, 180)}`);
+      extracted = parseJsonContent("{}");
+    } else {
+      const llmPayload = await llmResponse.json();
+      const content = llmPayload.choices?.[0]?.message?.content || "{}";
+      extracted = parseJsonContent(content);
     }
-    const llmPayload = await llmResponse.json();
-    const content = llmPayload.choices?.[0]?.message?.content || "{}";
-    const extracted = parseJsonContent(content);
-
-    const warnings: string[] = [];
     const path = `${auth.user.id}/${crypto.randomUUID()}-${file_name || "prescription"}`;
     const bytes = Uint8Array.from(atob(file_base64), c => c.charCodeAt(0));
     const upload = await supabase.storage.from("prescriptions").upload(path, bytes, { contentType: mime_type });
