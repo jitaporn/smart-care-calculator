@@ -38,6 +38,7 @@ function parseJsonContent(content: string) {
       dose_unit: null,
       frequency: null,
       route: null,
+      dilution_ratio: null,
       stock_drug: null,
       stock_unit: null,
       stock_volume_ml: null,
@@ -75,7 +76,7 @@ Deno.serve(async (request) => {
 
     const prompt = `Read this medical prescription image carefully.
 Extract the visible Thai and English text exactly as written.
-Preserve numbers, units, drug names, tables, line breaks, and dosing instructions.
+Preserve numbers, units, drug names, tables, line breaks, dosing instructions, and dilution ratios such as 1:1 or 1:5.
 Do not infer or add information that is not visible.`;
 
     const ocrResponse = await fetchWithTimeout(`${apiUrl}/chat/completions`, {
@@ -106,9 +107,11 @@ Do not infer missing data; use null for missing or uncertain values.
 Return this exact schema:
 {"patient_name":string|null,"bed":string|null,"weight_kg":number|null,"age":string|null,
 "drug_name":string|null,"dose":number|null,"dose_unit":"mg"|"mcg"|"g"|"unit"|null,
-"frequency":string|null,"route":string|null,"stock_drug":number|null,
+"frequency":string|null,"route":string|null,"dilution_ratio":string|null,"stock_drug":number|null,
 "stock_unit":"mg"|"mcg"|"g"|"unit"|null,"stock_volume_ml":number|null,
 "confidence":number,"uncertain_fields":string[]}
+
+For dilution_ratio, copy an explicitly visible ratio such as "1:1" or "1:5" exactly. Do not invent a ratio.
 
 OCR text:
 ${rawText}`;
