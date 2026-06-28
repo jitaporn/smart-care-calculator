@@ -1,7 +1,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
-const APP_VERSION = "1.4.0";
+const APP_VERSION = "1.4.1";
 const CONFIG = window.SMART_CARE_CONFIG || {};
 const cloudEnabled = Boolean(CONFIG.supabaseUrl && CONFIG.supabaseAnonKey);
 let supabaseClient = null;
@@ -289,7 +289,7 @@ function fluidCalculator() {
 }
 
 function viewScan() {
-  const steps = [["upload","1","นำเข้า"],["review","2","ตรวจ OCR"],["confirm","3","ยืนยันข้อมูล"]];
+  const steps = [["upload","1","นำเข้า"],["review","2","ตรวจข้อมูล"],["confirm","3","ผลคำนวณ"]];
   return `
     <div class="scan-steps">${steps.map(([id,n,label]) => `<div class="${state.scanStage === id ? "active" : ""} ${state.extracted && id !== "upload" ? "done" : ""}"><span>${n}</span>${label}</div>`).join("")}</div>
     <div class="workspace scan-layout">
@@ -339,7 +339,7 @@ function viewScan() {
           <label>ปริมาตรตัวทำละลาย (mL/cc)<input id="reviewVolume" type="number" value="${esc(state.extracted?.stock_volume_ml || "")}"></label>
         </div>
         <div class="confidence"><span>AI confidence</span><b>${Math.round((state.extracted?.confidence || 0) * 100)}%</b></div>
-        <button class="primary wide" id="confirmScan" ${state.extracted ? "" : "disabled"}>คำนวณปริมาตรยา</button>
+        <button class="primary wide" id="confirmScan" ${state.extracted ? "" : "disabled"}>ยืนยันข้อมูลและคำนวณในหน้านี้</button>
         <div id="scanCalculationResult">${state.scanResult ? scanResultHtml(state.scanResult) : ""}</div>
       </aside>
     </div>`;
@@ -665,7 +665,7 @@ function demoExtract(text) {
 function scanResultHtml(result) {
   return `<section class="scan-result" aria-live="polite">
     <p class="eyebrow">ผลการคำนวณจากเอกสาร</p>
-    <div class="answer"><span>ปริมาตรยาที่ต้องใช้</span><b>${format(result.answer)} mL (cc)</b></div>
+    <div class="answer"><span>ผลคำนวณปริมาตรยาที่ต้องใช้</span><b>${format(result.answer)} mL</b><small>เท่ากับ ${format(result.answer)} cc</small></div>
     <div class="formula"><b>สูตร</b><code>(${format(result.ordered)} ${result.stockUnit} × ${format(result.volume)} mL) ÷ ${format(result.stock)} ${result.stockUnit}</code></div>
     <div class="review-box"><b>กรุณาตรวจทานก่อนให้ยา</b><ul><li>ยืนยันขนาดยาที่แพทย์สั่ง</li><li>ยืนยันความแรงและปริมาตรบนฉลากยา</li><li>mL และ cc มีปริมาตรเท่ากัน แต่ควรบันทึกด้วยหน่วย mL</li></ul></div>
     <button class="primary wide" id="saveScanCalculation">ยืนยันและบันทึกประวัติ</button>
