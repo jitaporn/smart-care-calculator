@@ -39,6 +39,8 @@ function parseJsonContent(content: string) {
       frequency: null,
       route: null,
       dilution_ratio: null,
+      dilution_ratio_unit: null,
+      target_total_volume_ml: null,
       stock_drug: null,
       stock_unit: null,
       stock_volume_ml: null,
@@ -107,11 +109,15 @@ Do not infer missing data; use null for missing or uncertain values.
 Return this exact schema:
 {"patient_name":string|null,"bed":string|null,"weight_kg":number|null,"age":string|null,
 "drug_name":string|null,"dose":number|null,"dose_unit":"mg"|"mcg"|"g"|"unit"|null,
-"frequency":string|null,"route":string|null,"dilution_ratio":string|null,"stock_drug":number|null,
+"frequency":string|null,"route":string|null,"dilution_ratio":string|null,
+"dilution_ratio_unit":"mg"|"mcg"|"g"|"unit"|null,"target_total_volume_ml":number|null,
+"stock_drug":number|null,
 "stock_unit":"mg"|"mcg"|"g"|"unit"|null,"stock_volume_ml":number|null,
 "confidence":number,"uncertain_fields":string[]}
 
 For dilution_ratio, copy an explicitly visible ratio such as "1:1" or "1:5" exactly. Do not invent a ratio.
+For dilution_ratio_unit, return the drug amount unit represented by the first ratio number.
+For target_total_volume_ml, extract the explicitly requested final preparation volume, not the stock vial volume.
 
 OCR text:
 ${rawText}`;

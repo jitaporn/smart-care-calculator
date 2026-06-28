@@ -1,7 +1,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
-const APP_VERSION = "1.5.0";
+const APP_VERSION = "1.6.0";
 const CONFIG = window.SMART_CARE_CONFIG || {};
 const cloudEnabled = Boolean(CONFIG.supabaseUrl && CONFIG.supabaseAnonKey);
 let supabaseClient = null;
@@ -335,6 +335,7 @@ function viewScan() {
           <label>หน่วย<input id="reviewUnit" value="${esc(state.extracted?.dose_unit || "mg")}"></label>
           <label>ความถี่<input id="reviewFrequency" value="${esc(state.extracted?.frequency || "")}"></label>
           <label>อัตราส่วนการเจือจาง<input id="reviewRatio" inputmode="text" placeholder="เช่น 1:1 หรือ 1:5" value="${esc(state.extracted?.dilution_ratio || "")}"></label>
+          <label>ปริมาตรรวมที่ต้องการเตรียม (mL)<input id="reviewTargetVolume" type="number" min="0" step="any" value="${esc(state.extracted?.target_total_volume_ml || "")}"></label>
           <label>ตัวยาที่มี<input id="reviewStock" type="number" value="${esc(state.extracted?.stock_drug || "")}"></label>
           <label>หน่วยตัวยาที่มี<select id="reviewStockUnit">${["mg","mcg","g","unit"].map(unit => `<option ${unit === (state.extracted?.stock_unit || state.extracted?.dose_unit || "mg") ? "selected" : ""}>${unit}</option>`).join("")}</select></label>
           <label>ปริมาตรตัวทำละลาย (mL/cc)<input id="reviewVolume" type="number" value="${esc(state.extracted?.stock_volume_ml || "")}"></label>
@@ -646,7 +647,7 @@ async function runOcr(event) {
     stopOcrProgress(true);
     setBusy(button, true, "เสร็จแล้ว");
     await new Promise(resolve => setTimeout(resolve, 350));
-    state.extracted = result; state.scanResult = null; state.scanStage = "review"; renderView();
+    state.extracted = applyDilutionRatio(result); state.scanResult = null; state.scanStage = "review"; renderView();
     toast("อ่านเอกสารแล้ว กรุณาตรวจทานทุกช่อง");
   } catch (error) {
     stopOcrProgress(false);
@@ -664,11 +665,24 @@ function demoExtract(text) {
   return { raw_text:text, patient_name:"", bed:"", weight_kg:weight?.[1] || "", age:"", drug_name:drug?.name || "", dose:dose?.[1] || "", dose_unit:dose?.[2] || "mg", frequency:"", dilution_ratio:ratio ? `${ratio[1]}:${ratio[2]}` : "", stock_drug:stock?.[1] || "", stock_volume_ml:stock?.[3] || "", confidence:.35 };
 }
 
+function applyDilutionRatio(extracted) {
+  const ratio = String(extracted?.dilution_ratio || "").match(/^\s*(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)\s*$/);
+  const targetVolume = Number(extracted?.target_total_volume_ml);
+  if (!ratio || !(targetVolume > 0) || !(Number(ratio[2]) > 0)) return extracted;
+  return {
+    ...extracted,
+    dose: Number(ratio[1]) / Number(ratio[2]) * targetVolume,
+    dose_unit: extracted.dilution_ratio_unit || extracted.dose_unit || "mg",
+    ratio_dose_calculated: true,
+  };
+}
+
 function scanResultHtml(result) {
   return `<section class="scan-result" aria-live="polite">
     <p class="eyebrow">ผลการคำนวณจากเอกสาร</p>
     <div class="answer"><span>ผลคำนวณปริมาตรยาที่ต้องใช้</span><b>${format(result.answer)} mL</b><small>เท่ากับ ${format(result.answer)} cc</small></div>
     ${result.dilutionRatio ? `<div class="metric"><span>อัตราส่วนที่ OCR อ่านได้</span><b>${esc(result.dilutionRatio)}</b></div>` : ""}
+    ${result.targetVolume ? `<div class="metric"><span>ขนาดยาที่คำนวณจากอัตราส่วน</span><b>${format(result.ordered)} ${esc(result.stockUnit)}</b></div>` : ""}
     <div class="formula"><b>สูตร</b><code>(${format(result.ordered)} ${result.stockUnit} × ${format(result.volume)} mL) ÷ ${format(result.stock)} ${result.stockUnit}</code></div>
     <div class="review-box"><b>กรุณาตรวจทานก่อนให้ยา</b><ul><li>ยืนยันขนาดยาที่แพทย์สั่ง</li><li>ยืนยันความแรงและปริมาตรบนฉลากยา</li><li>mL และ cc มีปริมาตรเท่ากัน แต่ควรบันทึกด้วยหน่วย mL</li></ul></div>
     <button class="primary wide" id="saveScanCalculation">ยืนยันและบันทึกประวัติ</button>
@@ -676,14 +690,16 @@ function scanResultHtml(result) {
 }
 
 function confirmScan() {
-  state.extracted = {
+  state.extracted = applyDilutionRatio({
     raw_text:$("#ocrText").value, patient_name:$("#reviewPatient").value, bed:$("#reviewBed").value,
     weight_kg:$("#reviewWeight").value, age:$("#reviewAge").value, drug_name:$("#reviewDrug").value,
     dose:$("#reviewDose").value, dose_unit:$("#reviewUnit").value, frequency:$("#reviewFrequency").value,
     dilution_ratio:$("#reviewRatio").value.trim(),
+    dilution_ratio_unit:state.extracted.dilution_ratio_unit || $("#reviewUnit").value,
+    target_total_volume_ml:$("#reviewTargetVolume").value,
     stock_drug:$("#reviewStock").value, stock_unit:$("#reviewStockUnit").value,
     stock_volume_ml:$("#reviewVolume").value, confidence:state.extracted.confidence
-  };
+  });
   try {
     const ordered = Number(state.extracted.dose);
     const stock = Number(state.extracted.stock_drug);
@@ -693,7 +709,7 @@ function confirmScan() {
     }
     const stockUnit = state.extracted.stock_unit || "mg";
     const orderedInStockUnit = convert(ordered, state.extracted.dose_unit || "mg", stockUnit);
-    state.scanResult = { ordered: orderedInStockUnit, stock, stockUnit, volume, dilutionRatio:state.extracted.dilution_ratio, answer: (orderedInStockUnit * volume) / stock };
+    state.scanResult = { ordered: orderedInStockUnit, stock, stockUnit, volume, dilutionRatio:state.extracted.dilution_ratio, targetVolume:Number(state.extracted.target_total_volume_ml) || null, answer: (orderedInStockUnit * volume) / stock };
     state.scanStage = "confirm";
     renderView();
     $("#scanCalculationResult")?.scrollIntoView({ behavior:"smooth", block:"center" });
